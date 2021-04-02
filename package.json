@@ -1,0 +1,21 @@
+{
+  "name": "tts_ext",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "ts-node": "^9.1.1",
+    "ttypescript": "^1.5.12",
+    "typescript": "^4.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^14.14.37"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "tsc-init": "ttsc --init",
+    "build": "ttsc"
+  },
+  "author": "",
+  "license": "ISC"
+}
