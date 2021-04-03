@@ -76,3 +76,40 @@ function comptimeSum() {
 
 (() => { return (36); })();
 ```
+
+## Plans
+
+### User-level compiler macro definition
+
+```ts
+__compilerJob($compiler => {
+    $compiler.setMacro('__inline', ($compiler, node) => {
+        // inline node here
+    });
+});
+
+function foo(a,b) {
+    console.log(a + b);
+}
+
+__inline(foo, 10, 20);
+```
+
+Result
+
+```js
+console.log(10 + 20);
+```
+
+### `comptime` & `__compilerJob` stability & error checking
+
+Currently it works by code travel-extraction.  
+There are a lot of cases where it works bad (like for argument expression eval)
+
+### `pure` function decorator
+
+Check if function is pure (without side effects).
+
+May be used for:
+* Safe `comptime` calls
+* Translate TypeScript libraries to other languages (llvm)

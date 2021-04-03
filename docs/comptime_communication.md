@@ -2,6 +2,8 @@
 
 Research on compile time communication abilities
 
+Inspired by Jai, John Blow
+
 ```ts
 __compilerJob($compiler => {
     $compiler.addListener('item', (arg: any) => {
