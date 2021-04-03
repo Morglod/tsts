@@ -84,6 +84,7 @@ function extractComptimeCode(checker: ts.TypeChecker, ctx: ts.TransformationCont
                 if (code) identifiersToCode.set(node.expression, `(${code})`);
             }
         }
+
         if (
             ts.isIdentifier(node) &&
             ts.isPropertyAccessExpression(node.parent) &&
@@ -169,7 +170,7 @@ function run_transformed_comptime(
     code: string,
     args: any[] = []
 ) {
-    console.log('run code> ' + code + '\n----');
+    // console.log('run code> ' + code + '\n----');
     const compiledCode = compileCode(checker, ctx, code);
     let generatedFunc;
     let resultValue;
@@ -196,13 +197,152 @@ function run_transformed_comptime(
     return parseFuncBodyAndGenerateInvoke(`return (${resultValue})`);
 }
 
+function get_genericType_of_callExpr(checker: ts.TypeChecker, expr: ts.CallExpression, genericInd: number) {
+    if (expr.typeArguments) {
+        const targ = expr.typeArguments[genericInd];
+        return checker.getTypeAtLocation(targ);
+    }
+    return undefined;
+}
+
+const _jobApiUserEvents = new tsee.EventEmitter();
+
+function resolve_generic_argument(checker: ts.TypeChecker, callExpr: ts.CallExpression, genericArgInd: number, genericArg: ts.TypeNode) {
+    let t = checker.getTypeFromTypeNode(genericArg);
+    if (t.isTypeParameter()) {
+        const symb = t.getSymbol();
+        // T extends string
+        const decl = symb.getDeclarations()[0];
+        const functionDeclExpr = decl.parent;
+
+        if (ts.isFunctionExpression(functionDeclExpr)) {
+            const maybeCallExpr = functionDeclExpr.parent.parent;
+            if (ts.isCallExpression(maybeCallExpr)) {
+                const genericArgs = (maybeCallExpr.typeArguments || []).map((x: ts.TypeNode, i: number) => {
+                    return resolve_generic_argument(checker, maybeCallExpr, i, x);
+                });
+                return genericArgs[genericArgInd];
+            }
+        } else {
+            // console.error('|||\n' + functionDeclExpr.kind + ' ____ ' + functionDeclExpr.getText() + '\n||||');
+        }
+    }
+
+    return t;
+}
+
+function createCompilerJobAPI(params: {
+    checker: ts.TypeChecker,
+    ctx: ts.TransformationContext,
+    sourceFile: ts.SourceFile,
+    currentNode: ts.CallExpression,
+    setReplaceWith: (newNode: ts.Node) => void,
+}) {
+    // TODO: rewrite to static functions
+
+    return {
+        replaceWithCode: (code: string) => params.setReplaceWith(parseCodePickExpression(code)),
+        replaceWithNode: (astNode: any) => params.setReplaceWith(astNode),
+        compileCode: (code: string) => compileCode(params.checker, params.ctx, code),
+        extractComptimeCode_funcBody: (astFuncBodyNode: any) => extractComptimeCode(params.checker, params.ctx, astFuncBodyNode),
+        printCode: (astNode: any) => printCode(astNode, astNode.getSourceFile()),
+        parseCodePickExpression: (code: string) => parseCodePickExpression(code),
+        unescapeText: (text: string) => unescapeText(text),
+        // getTypeOf(symb: any): any;
+        getTypeOfGeneric: (genericTypeInd: number) => {
+            if (params.currentNode.typeArguments) {
+                const targ = params.currentNode.typeArguments[genericTypeInd];
+                const type = resolve_generic_argument(params.checker, params.currentNode, genericTypeInd, targ);
+                return type;
+            }
+            return undefined;
+        },
+        getTypeChecker: () => params.checker,
+        getTransformContext: () => params.ctx,
+        visitEachChild: (astNode: any, visitor: any) => {
+            return ts.visitEachChild(astNode, visitor, params.ctx);
+        },
+        getTs: () => ts,
+        getCurrentNode: () => params.currentNode,
+        
+        addListener: (eventName: string, handler: any) => _jobApiUserEvents.addListener(eventName, handler),
+        removeListener: (eventName: string, handler: any) => _jobApiUserEvents.removeListener(eventName, handler),
+        emitEvent: (eventName: string, ...args: any) => _jobApiUserEvents.emit(eventName, ...args),
+    };
+}
+
+// use atomic waiter with separate thread to run async functions in sync transformer
+
+let _compiletime_depth = 0;
+
+function createSuperTransformer(checker: ts.TypeChecker, pluginOptions: {}) {
+    return (ctx: ts.TransformationContext) => {
+        return (sourceFile: ts.SourceFile) => {
+            function visitor(node: ts.Node): ts.VisitResult<ts.Node> {
+                if (ts.isExpressionStatement(node)) {
+                    const child = node.expression;
+
+                    if (ts.isCallExpression(child) && unescapeText(child.expression.getText()) === KEYWORD_COMPILER_EVAL) {
+                        return transform_compilerEval(checker, ctx, child);
+                    }
+                }
+                if (ts.isCallExpression(node) && unescapeText(node.expression.getText()) === KEYWORD_COMPTIME) {
+                    const arg0 = node.arguments[0];
+                    if (ts.isArrowFunction(arg0)) {
+                        ++_compiletime_depth;
+                        const transformedNode = transform_comptime(checker, ctx, arg0.body);
+
+                        // if (_is_inside_comptime === 1) {
+                            const transformedCode = printCode(transformedNode, sourceFile);
+                            const result = run_transformed_comptime(checker, ctx, transformedCode);
+                            --_compiletime_depth;
+                            return result;
+                        // }
+
+                        --_compiletime_depth;
+                        return transformedNode;
+                    }
+                }
+                if (ts.isCallExpression(node) && unescapeText(node.expression.getText()) === KEYWORD_COMPILER_JOB) {
+                    const arg0 = node.arguments[0];
+                    if (ts.isArrowFunction(arg0)) {
+                        let replaceTo: ts.Node;
+
+                        const compilerJobApi = createCompilerJobAPI({
+                            checker,
+                            ctx,
+                            currentNode: node,
+                            sourceFile,
+                            setReplaceWith: (newNode) => replaceTo = newNode,
+                        });
+
+                        ++_compiletime_depth;
+                        const transformedNode = transform_comptime(checker, ctx, arg0.body);
+                        
+                        // if (_is_inside_comptime === 1) {
+                            const transformedCode = printCode(transformedNode, sourceFile);
+                            const result = run_transformed_comptime(checker, ctx, transformedCode, [ compilerJobApi ]);
+                            --_compiletime_depth;
+
+                            if (replaceTo) return replaceTo;
+                            return result;
+                        // }
+
+                        --_compiletime_depth;
+                        return transformedNode;
+                    }
+                }
+                return ts.visitEachChild(node, visitor, ctx);
+            }
+            return ts.visitEachChild(sourceFile, visitor, ctx);
+        };
+    };
+}
+
+
 function transform_compilerEval(checker: ts.TypeChecker, ctx: ts.TransformationContext, callExpr: ts.CallExpression) {
     const $genericType = (i: number): ts.Type | undefined => {
-        if (callExpr.typeArguments) {
-            const targ = callExpr.typeArguments[i];
-            return checker.getTypeAtLocation(targ);
-        }
-        return undefined;
+        return get_genericType_of_callExpr(checker, callExpr, i);
     };
     
     const $argType = (i: number): ts.Type | undefined => {
@@ -231,120 +371,6 @@ function transform_compilerEval(checker: ts.TypeChecker, ctx: ts.TransformationC
     const newCode = codeFunc();
     const newNode = parseCode(newCode).statements;
     return newNode as any;
-}
-
-const _jobApiUserEvents = new tsee.EventEmitter();
-
-function createCompilerJobAPI(params: {
-    checker: ts.TypeChecker,
-    ctx: ts.TransformationContext,
-    sourceFile: ts.SourceFile,
-    currentNode: ts.CallExpression,
-    setReplaceWith: (newNode: ts.Node) => void,
-}) {
-    // TODO: rewrite to static functions
-
-    return {
-        replaceWithCode: (code: string) => params.setReplaceWith(parseCodePickExpression(code)),
-        replaceWithNode: (astNode: any) => params.setReplaceWith(astNode),
-        compileCode: (code: string) => compileCode(params.checker, params.ctx, code),
-        extractComptimeCode_funcBody: (astFuncBodyNode: any) => extractComptimeCode(params.checker, params.ctx, astFuncBodyNode),
-        printCode: (astNode: any) => printCode(astNode, astNode.getSourceFile()),
-        parseCodePickExpression: (code: string) => parseCodePickExpression(code),
-        unescapeText: (text: string) => unescapeText(text),
-        // getTypeOf(symb: any): any;
-        getTypeOfGeneric: (genericTypeInd: number) => {
-            if (params.currentNode.typeArguments) {
-                const targ = params.currentNode.typeArguments[genericTypeInd];
-                const targType = params.checker.getTypeAtLocation(targ);
-
-                // getAccessibleSymbolChain
-                // console.log(targ.getFullText());
-
-                return targType;
-            }
-            return undefined;
-        },
-        getTypeChecker: () => params.checker,
-        getTransformContext: () => params.ctx,
-        visitEachChild: (astNode: any, visitor: any) => {
-            return ts.visitEachChild(astNode, visitor, params.ctx);
-        },
-        getTs: () => ts,
-        getCurrentNode: () => params.currentNode,
-        
-        addListener: (eventName: string, handler: any) => _jobApiUserEvents.addListener(eventName, handler),
-        removeListener: (eventName: string, handler: any) => _jobApiUserEvents.removeListener(eventName, handler),
-        emitEvent: (eventName: string, ...args: any) => _jobApiUserEvents.emit(eventName, ...args),
-    };
-}
-
-// use atomic waiter with separate thread to run async functions in sync transformer
-
-let _is_inside_comptime = 0;
-
-function createSuperTransformer(checker: ts.TypeChecker, pluginOptions: {}) {
-    return (ctx: ts.TransformationContext) => {
-        return (sourceFile: ts.SourceFile) => {
-            function visitor(node: ts.Node): ts.VisitResult<ts.Node> {
-                if (ts.isExpressionStatement(node)) {
-                    const child = node.expression;
-
-                    if (ts.isCallExpression(child) && unescapeText(child.expression.getText()) === KEYWORD_COMPILER_EVAL) {
-                        return transform_compilerEval(checker, ctx, child);
-                    }
-                }
-                if (ts.isCallExpression(node) && unescapeText(node.expression.getText()) === KEYWORD_COMPTIME) {
-                    const arg0 = node.arguments[0];
-                    if (ts.isArrowFunction(arg0)) {
-                        ++_is_inside_comptime;
-                        const transformedNode = transform_comptime(checker, ctx, arg0.body);
-
-                        if (_is_inside_comptime === 1) {
-                            const transformedCode = printCode(transformedNode, sourceFile);
-                            const result = run_transformed_comptime(checker, ctx, transformedCode);
-                            --_is_inside_comptime;
-                            return result;
-                        }
-
-                        --_is_inside_comptime;
-                        return transformedNode;
-                    }
-                }
-                if (ts.isCallExpression(node) && unescapeText(node.expression.getText()) === KEYWORD_COMPILER_JOB) {
-                    const arg0 = node.arguments[0];
-                    if (ts.isArrowFunction(arg0)) {
-                        let replaceTo: ts.Node;
-
-                        const compilerJobApi = createCompilerJobAPI({
-                            checker,
-                            ctx,
-                            currentNode: node,
-                            sourceFile,
-                            setReplaceWith: (newNode) => replaceTo = newNode,
-                        });
-
-                        ++_is_inside_comptime;
-                        const transformedNode = transform_comptime(checker, ctx, arg0.body);
-                        
-                        if (_is_inside_comptime === 1) {
-                            const transformedCode = printCode(transformedNode, sourceFile);
-                            const result = run_transformed_comptime(checker, ctx, transformedCode, [ compilerJobApi ]);
-                            --_is_inside_comptime;
-
-                            if (replaceTo) return replaceTo;
-                            return result;
-                        }
-
-                        --_is_inside_comptime;
-                        return transformedNode;
-                    }
-                }
-                return ts.visitEachChild(node, visitor, ctx);
-            }
-            return ts.visitEachChild(sourceFile, visitor, ctx);
-        };
-    };
 }
 
 export default createSuperTransformer;

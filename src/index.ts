@@ -1,9 +1,9 @@
-// -----------------------------------------------
-//                  definitions
+// // -----------------------------------------------
+// //                  definitions
 
-function __compilerEval<T>(x: string) {
-    return {} as any;
-}
+// function __compilerEval<T>(x: string) {
+//     return {} as any;
+// }
 
 function comptime<T>(func: () => T): T {
     return func();
@@ -34,7 +34,13 @@ function __compilerJob<A1=any,A2=any,A3=any,A4=any,A5=any>(func: ($compiler: Com
     return undefined!;
 }
 
-// -----------------------------------------------
+// // -----------------------------------------------
+
+// __compilerJob($compiler => {
+//     $compiler.addListener('cmd', (arg: any) => {
+//         console.log('compiler cmd', arg);
+//     });
+// });
 
 function compilerJobExample1() {
     __compilerJob($compiler => {
@@ -49,72 +55,104 @@ function compilerJobExample1() {
     });
 }
 
-function compilerJobExample2<Names>(names: Names[]) {
-    __compilerJob<Names>($compiler => {
+function compilerJobExample2<Names>() {
+    return __compilerJob<Names>($compiler => {
         let out = '';
         const genericType = $compiler.getTypeOfGeneric(0);
-        // walk over union
-        console.log(genericType);
-        if (genericType.isUnionOrIntersection()) {
+        // walk over Names type
+        if (genericType && genericType.isUnionOrIntersection()) {
             for (const childT of genericType.types) {
                 if (childT.isStringLiteral()) {
-                    out += '"' + childT.value + '"';
+                    out += `"${childT.value}",`;
                 }
             }
         }
 
-        console.log('result: ' + out);
-        $compiler.replaceWithCode('return ([ "test", ' + out + '])');
+        $compiler.replaceWithCode('([ ' + out + ' ])');
     });
 }
 
-declare const Struct: any;
+// declare const Struct: any;
 
-function comptimeStructs() {
+// function comptimeStructs() {
 
-    __compilerEval<'A'|'B'>(`
-        let out = '';
-        $eachOfStrUnion(x => out += x + ': 0, ');
-        return 'const Struct = {' + out + '}';
-    `);
+//     __compilerEval<'A'|'B'>(`
+//         let out = '';
+//         $eachOfStrUnion(x => out += x + ': 0, ');
+//         return 'const Struct = {' + out + '}';
+//     `);
 
-    return Struct;
-}
+//     return Struct;
+// }
 
-function sum(a: number, b: number) {
-    return a + b;
-}
+// function sum(a: number, b: number) {
+//     return a + b;
+// }
 
-function comptimeSum() {
-    const numbers = [ 1, 2, 3, 4, 5, 6, 7, 8 ];
-    const result = comptime(() => {
-        return numbers.reduce((total, x) => sum(total, x), 0);
-    });
+// function comptimeSum() {
+//     const numbers = [ 1, 2, 3, 4, 5, 6, 7, 8 ];
+//     const result = comptime(() => {
+//         return numbers.reduce((total, x) => sum(total, x), 0);
+//     });
 
-    console.log(result);
+//     console.log(result);
 
-    return result;
-}
+//     return result;
+// }
 
-comptime(() => {
-    return comptimeSum();
-});
+// comptime(() => {
+//     return comptimeSum();
+// });
 
-function compInComp() {
-    const result = comptime(() => {
-        return comptimeStructs();
-    });
-    console.log(result);
-}
+// function compInComp() {
+//     const result = comptime(() => {
+//         return comptimeStructs();
+//     });
+//     console.log(result);
+// }
 
-compInComp();
+// compInComp();
 
 function compApiInComptime() {
     const result = comptime(() => {
         console.log('compApiInComptime');
-        compilerJobExample2<'a'|'b'|'c'>([]);
+        return compilerJobExample2<'a'|'b'|'c'>();
     });
 }
 
-// 
-// type.tryGetThisTypeAt(topCallStack)
+// // 
+// // type.tryGetThisTypeAt(topCallStack)
+
+// function foo<A>() {
+//     __compilerJob<A>($compiler => {
+//         $compiler.getTypeOfGeneric(0);
+//         return 123;
+//     });
+// }
+
+// __compilerJob($compiler => {
+//     foo<'A' | 'B'>();
+//     return 123;
+// });
+
+// (function foo<A>() {
+//     __compilerJob<A>($compiler => {
+//         $compiler.getTypeOfGeneric(0);
+//         return 123;
+//     });
+// })<"A" | "B">()
+
+// function defineCmd(name: string) {
+//     __compilerJob($compiler => {
+//         const ts = $compiler.getTs();
+//         if (!ts.isFunctionExpression($compiler.getCurrentNode().parent.parent.parent)) {
+//             return '';
+//         }
+
+//         return name;
+//     });
+// }
+
+// comptime(() => {
+//     defineCmd("it works");
+// });
