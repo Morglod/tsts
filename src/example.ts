@@ -39,10 +39,10 @@ function __compilerJob<A1=any,A2=any,A3=any,A4=any,A5=any>(func: ($compiler: Com
 // // -----------------------------------------------
 
 __compilerJob($compiler => {
-    $compiler.addListener('cmd', (arg: any) => {
-        const cmds = $compiler.globalStore('cmds');
-        if (!cmds.list) cmds.list = [];
-        cmds.list.push(arg);
+    $compiler.addListener('item', (arg: any) => {
+        const items = $compiler.globalStore('items');
+        if (!items.list) items.list = [];
+        items.list.push(arg);
     });
 
     $compiler.replaceWithCode('(void 0)');
@@ -164,10 +164,58 @@ function compApiInComptime() {
 // });
 
 __compilerJob($compiler => {
-    $compiler.emitEvent('cmd', '({ hello: "world" })');
+    $compiler.emitEvent('item', '({ hello: "world" })');
+    $compiler.replaceWithCode('(void 0)');
 });
 
 __compilerJob($compiler => {
-    const cmds = $compiler.globalStore('cmds');
+    $compiler.emitEvent('item', '({ foo: "boo" })');
+    $compiler.replaceWithCode('(void 0)');
+});
+
+__compilerJob($compiler => {
+    const cmds = $compiler.globalStore('items');
     $compiler.replaceWithCode('[' + cmds.list.join(', ') + ']');
 });
+
+//-------
+
+// NOT WORKING ------------
+
+// function sum(input: number[]) {
+//     return input.reduce((total, x) => total + x, 0);
+// }
+
+// function comptimeSum() {
+//     const numbers = [ 1, 2, 3, 4, 5, 6, 7, 8 ];
+//     const result = comptime(() => {
+//         return sum(numbers);
+//     });
+
+//     return result;
+// }
+
+// comptime(() => {
+//     return comptimeSum();
+// });
+
+// END OF NOT WORKING -------
+
+// function sum(a: number, b: number) {
+//     return a + b;
+// }
+
+// function comptimeSum() {
+//     const numbers = [ 1, 2, 3, 4, 5, 6, 7, 8 ];
+//     const result = comptime(() => {
+//         return numbers.reduce((total, x) => sum(total, x), 0);
+//     });
+
+//     console.log(result);
+
+//     return result;
+// }
+
+// comptime(() => {
+//     return comptimeSum();
+// });

@@ -1,12 +1,19 @@
-# experiments on typescript extension
+# tsts
 
-Usage:
+Yet experimental on typescript compiler api features.
+
+## Usage:
+
+```
+npm i https://github.com/Morglod/tsts
+npm i ttypescript
+```
 
 Specify in `tsconfig.json`
 ```json
 "compilerOptions": {
     "plugins": [
-        { "transform": "./src/transformers/comptime.ts", "type": "checker" }
+        { "transform": "tsts/src/transformers/comptime.ts", "type": "checker" }
     ],
 }
 ```
@@ -18,37 +25,23 @@ Build with `ttsc` as:
 },
 ```
 
-## comptimeEval
+Build:
 
-Evalute code on compilation.  
-Macro-like functionality
-
-Source:
-
-```ts
-function comptimeStructs() {
-    type Variants = 'a' | 'b' | 'c' | 'e';
-
-    comptimeEval<Variants>(`
-        let out = '';
-        $eachOfStrUnion(x => out += x + ': 0, ');
-        return 'const Struct = {' + out + '}';
-    `);
-}
+```
+npm run build
 ```
 
-Compiled:
+## Features
 
-```js
-function comptimeStructs() {
-    var Struct = { a: 0, b: 0, c: 0, e: 0, };
-}
-```
+* [Comptime calculations](./docs/comptime.md)
+* [Recursive comptime with generic types](./docs/recursive_comptime.md)
+* [Compile time communication](./docs/comptime_communication.md)
+* Macro-like eval [comptimeEval](./docs/comptimeEval.md)
+* Overload decorator [overloadOf](./docs/overloadOf.md)
 
 ## comptime
 
-Run functions on compile time.  
-Not stable yet.
+Example of comptime calculations:
 
 Source:
 ```ts
@@ -82,98 +75,4 @@ function comptimeSum() {
 }
 
 (() => { return (36); })();
-```
-
-## compile-time communication
-
-`__compilerJob` is advenced API
-
-```ts
-__compilerJob($compiler => {
-    $compiler.addListener('cmd', (arg: any) => {
-        console.log('compiler cmd', arg);
-    });
-});
-
-__compilerJob($compiler => {
-    $compiler.emitEvent('cmd', 'hello');
-});
-```
-
-## recursive comptime with generic types
-
-Source:
-```ts
-function compilerJobExample2<Names>() {
-    return __compilerJob<Names>($compiler => {
-        let out = '';
-        const genericType = $compiler.getTypeOfGeneric(0);
-        // walk over Names type
-        if (genericType && genericType.isUnionOrIntersection()) {
-            for (const childT of genericType.types) {
-                if (childT.isStringLiteral()) {
-                    out += `"${childT.value}",`;
-                }
-            }
-        }
-
-        $compiler.replaceWithCode('([ ' + out + ' ])');
-    });
-}
-
-function compApiInComptime() {
-    const result = comptime(() => {
-        console.log('compApiInComptime');
-        return compilerJobExample2<'a'|'b'|'c'>();
-    });
-}
-```
-
-Result:
-```js
-function compilerJobExample2() {
-    return ([]);
-}
-
-function compApiInComptime() {
-    const result = (() => { return (["a", "b", "c"]); })();
-}
-```
-
-## overloadof
-
-Compile time overload type assertion on pure typescript
-
-```ts
-class A {
-    foo() {
-        return 10;
-    }
-}
-
-class B extends A {
-    @overloadOf<B, 'foo', A>()
-    foo() {
-        return 20;
-    }
-}
-
-// ------
-
-interface ISmth {
-    boo(a: number, b: string): number;
-}
-
-class Hmm {
-    @overloadOf<Hmm, 'boo', ISmth>()
-    boo(a: number, b: string) {
-        return 0;
-    }
-}
-```
-
-## build
-
-```
-npm run build
 ```
