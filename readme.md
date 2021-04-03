@@ -1,6 +1,6 @@
 # tsts
 
-Yet experimental on typescript compiler api features.
+Experiments on typescript compiler api features.
 
 ## Usage:
 
