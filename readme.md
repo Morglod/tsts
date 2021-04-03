@@ -1,5 +1,23 @@
 # experiments on typescript extension
 
+Usage:
+
+Specify in `tsconfig.json`
+```json
+"compilerOptions": {
+    "plugins": [
+        { "transform": "./src/transformers/comptime.ts", "type": "checker" }
+    ],
+}
+```
+
+Build with `ttsc` as:
+```json
+"scripts": {
+    "build": "ttsc"
+},
+```
+
 ## comptimeEval
 
 Evalute code on compilation.  

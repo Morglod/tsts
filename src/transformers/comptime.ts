@@ -56,17 +56,18 @@ function printCode(node: ts.Node, source: ts.SourceFile): string {
 }
 
 const formatHost = {
-    getCanonicalFileName: path => path,
+    getCanonicalFileName: (path: string) => path,
     getCurrentDirectory: ts.sys.getCurrentDirectory,
     getNewLine: () => ts.sys.newLine,
 };
 
-function extractComptimeCode(checker: ts.TypeChecker, ctx: ts.TransformationContext, node: ts.Node) {
+function extractComptimeCode(checker: ts.TypeChecker, ctx: ts.TransformationContext, node: ts.Node | undefined) {
     const identifiersToCode: Map<ts.Node, string> = new Map;
 
-    if (ts.isVariableDeclaration(node)) {
+    if (node && ts.isVariableDeclaration(node)) {
         node = node.initializer;
     }
+    if (!node) return '';
 
     function visitor(node: ts.Node): ts.VisitResult<ts.Node> {
         if (
@@ -76,12 +77,14 @@ function extractComptimeCode(checker: ts.TypeChecker, ctx: ts.TransformationCont
             unescapeText(node.expression.getText()) !== KEYWORD_COMPILER_JOB
         ) {
             const sign = checker.getResolvedSignature(node);
-            const decl = sign.getDeclaration();
-
-            if (!ts.isParameter(decl.parent)) {
-                const code = extractComptimeCode(checker, ctx, decl);
-                // console.log('isCallExpression with id', node.getFullText(), decl.getFullText());
-                if (code) identifiersToCode.set(node.expression, `(${code})`);
+            if (sign) {
+                const decl = sign.getDeclaration();
+    
+                if (!ts.isParameter(decl.parent)) {
+                    const code = extractComptimeCode(checker, ctx, decl);
+                    // console.log('isCallExpression with id', node.getFullText(), decl.getFullText());
+                    if (code) identifiersToCode.set(node.expression, `(${code})`);
+                }
             }
         }
 
@@ -91,10 +94,14 @@ function extractComptimeCode(checker: ts.TypeChecker, ctx: ts.TransformationCont
             node.parent.expression === node
         ) {
             const symb = checker.getSymbolAtLocation(node);
-            const expr = symb.getDeclarations()[0];
-            // console.log('isPropertyAccessExpression with id', node.parent.getFullText());
-            const code = extractComptimeCode(checker, ctx, expr);
-            if (code) identifiersToCode.set(node, code);
+            const decls = symb && symb.getDeclarations();
+
+            if (symb && decls) {
+                const expr = decls[0];
+                // console.log('isPropertyAccessExpression with id', node.parent.getFullText());
+                const code = extractComptimeCode(checker, ctx, expr);
+                if (code) identifiersToCode.set(node, code);
+            }
         }
         return ts.visitEachChild(node, visitor, ctx);
     }
@@ -104,7 +111,9 @@ function extractComptimeCode(checker: ts.TypeChecker, ctx: ts.TransformationCont
         substituteNode(hint, node) {
             if (identifiersToCode.has(node)) {
                 const code = identifiersToCode.get(node);
-                return parseCodePickExpression(code);
+                if (code) {
+                    return parseCodePickExpression(code);
+                }
             }
             return node;
         }
@@ -136,13 +145,15 @@ function compileCode(checker: ts.TypeChecker, ctx: ts.TransformationContext, cod
     });
     const initialGetSourceFile = compilerHost.getSourceFile.bind(compilerHost);
     const file = ts.createSourceFile(runtimeFileName, code, ctx.getCompilerOptions().target || ts.ScriptTarget.ES2018, false, ts.ScriptKind.TS);
-    const createdFiles = {};
+    const createdFiles: Record<string, string> = {};
 
-    compilerHost.getSourceFile = (fileName: string, ...args: any) => {
+    compilerHost.getSourceFile = (fileName: string, languageVersion, onError, shouldCreateNewSourceFile) => {
         if (fileName === runtimeFileName) return file;
-        return initialGetSourceFile(fileName, ...args);
+        return initialGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
     };
-    compilerHost.writeFile = (fileName: string, contents: string) => createdFiles[fileName] = contents;
+    compilerHost.writeFile = (fileName: string, contents: string) => {
+        createdFiles[fileName] = contents;
+    };
 
     const program = ts.createProgram([ file.fileName ], ctx.getCompilerOptions(), compilerHost);
     program.emit(file, undefined, undefined, false, {
@@ -205,24 +216,28 @@ function get_genericType_of_callExpr(checker: ts.TypeChecker, expr: ts.CallExpre
     return undefined;
 }
 
-function resolve_generic_argument(checker: ts.TypeChecker, callExpr: ts.CallExpression, genericArgInd: number, genericArg: ts.TypeNode) {
+function resolve_generic_argument(checker: ts.TypeChecker, callExpr: ts.CallExpression, genericArgInd: number, genericArg: ts.TypeNode): ts.Type {
     let t = checker.getTypeFromTypeNode(genericArg);
     if (t.isTypeParameter()) {
         const symb = t.getSymbol();
-        // T extends string
-        const decl = symb.getDeclarations()[0];
-        const functionDeclExpr = decl.parent;
+        const decls = symb && symb.getDeclarations();
 
-        if (ts.isFunctionExpression(functionDeclExpr)) {
-            const maybeCallExpr = functionDeclExpr.parent.parent;
-            if (ts.isCallExpression(maybeCallExpr)) {
-                const genericArgs = (maybeCallExpr.typeArguments || []).map((x: ts.TypeNode, i: number) => {
-                    return resolve_generic_argument(checker, maybeCallExpr, i, x);
-                });
-                return genericArgs[genericArgInd];
+        if (decls) {
+            // T extends string
+            const decl = decls[0];
+            const functionDeclExpr = decl.parent;
+    
+            if (ts.isFunctionExpression(functionDeclExpr)) {
+                const maybeCallExpr = functionDeclExpr.parent.parent;
+                if (ts.isCallExpression(maybeCallExpr)) {
+                    const genericArgs = (maybeCallExpr.typeArguments || []).map((x: ts.TypeNode, i: number) => {
+                        return resolve_generic_argument(checker, maybeCallExpr, i, x);
+                    });
+                    return genericArgs[genericArgInd];
+                }
+            } else {
+                // console.error('|||\n' + functionDeclExpr.kind + ' ____ ' + functionDeclExpr.getText() + '\n||||');
             }
-        } else {
-            // console.error('|||\n' + functionDeclExpr.kind + ' ____ ' + functionDeclExpr.getText() + '\n||||');
         }
     }
 
@@ -230,7 +245,7 @@ function resolve_generic_argument(checker: ts.TypeChecker, callExpr: ts.CallExpr
 }
 
 const _jobApiUserEvents = new tsee.EventEmitter();
-const _globalStore = {};
+const _globalStore: Record<string, any> = {};
 
 function createCompilerJobAPI(params: {
     checker: ts.TypeChecker,
@@ -312,7 +327,7 @@ function createSuperTransformer(checker: ts.TypeChecker, pluginOptions: {}) {
                 if (ts.isCallExpression(node) && unescapeText(node.expression.getText()) === KEYWORD_COMPILER_JOB) {
                     const arg0 = node.arguments[0];
                     if (ts.isArrowFunction(arg0)) {
-                        let replaceTo: ts.Node;
+                        let replaceTo!: ts.Node | undefined;
 
                         const compilerJobApi = createCompilerJobAPI({
                             checker,
