@@ -28,6 +28,8 @@ type CompilerAPI = {
     addListener(eventName: string, handler: any): any;
     removeListener(eventName: string, handler: any): any;
     emitEvent(eventName: string, ...args: any): any;
+
+    globalStore(name: string): any;
 };
 
 function __compilerJob<A1=any,A2=any,A3=any,A4=any,A5=any>(func: ($compiler: CompilerAPI) => void) {
@@ -36,11 +38,15 @@ function __compilerJob<A1=any,A2=any,A3=any,A4=any,A5=any>(func: ($compiler: Com
 
 // // -----------------------------------------------
 
-// __compilerJob($compiler => {
-//     $compiler.addListener('cmd', (arg: any) => {
-//         console.log('compiler cmd', arg);
-//     });
-// });
+__compilerJob($compiler => {
+    $compiler.addListener('cmd', (arg: any) => {
+        const cmds = $compiler.globalStore('cmds');
+        if (!cmds.list) cmds.list = [];
+        cmds.list.push(arg);
+    });
+
+    $compiler.replaceWithCode('(void 0)');
+});
 
 function compilerJobExample1() {
     __compilerJob($compiler => {
@@ -156,3 +162,12 @@ function compApiInComptime() {
 // comptime(() => {
 //     defineCmd("it works");
 // });
+
+__compilerJob($compiler => {
+    $compiler.emitEvent('cmd', '({ hello: "world" })');
+});
+
+__compilerJob($compiler => {
+    const cmds = $compiler.globalStore('cmds');
+    $compiler.replaceWithCode('[' + cmds.list.join(', ') + ']');
+});

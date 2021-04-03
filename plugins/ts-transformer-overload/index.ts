@@ -205,8 +205,6 @@ function get_genericType_of_callExpr(checker: ts.TypeChecker, expr: ts.CallExpre
     return undefined;
 }
 
-const _jobApiUserEvents = new tsee.EventEmitter();
-
 function resolve_generic_argument(checker: ts.TypeChecker, callExpr: ts.CallExpression, genericArgInd: number, genericArg: ts.TypeNode) {
     let t = checker.getTypeFromTypeNode(genericArg);
     if (t.isTypeParameter()) {
@@ -230,6 +228,9 @@ function resolve_generic_argument(checker: ts.TypeChecker, callExpr: ts.CallExpr
 
     return t;
 }
+
+const _jobApiUserEvents = new tsee.EventEmitter();
+const _globalStore = {};
 
 function createCompilerJobAPI(params: {
     checker: ts.TypeChecker,
@@ -268,6 +269,11 @@ function createCompilerJobAPI(params: {
         addListener: (eventName: string, handler: any) => _jobApiUserEvents.addListener(eventName, handler),
         removeListener: (eventName: string, handler: any) => _jobApiUserEvents.removeListener(eventName, handler),
         emitEvent: (eventName: string, ...args: any) => _jobApiUserEvents.emit(eventName, ...args),
+
+        globalStore: (name: string) => {
+            if (!_globalStore[name]) _globalStore[name] = {};
+            return _globalStore[name];
+        },
     };
 }
 
