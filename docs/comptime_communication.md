@@ -41,3 +41,38 @@ Result:
 
 [({ hello: "world" }), ({ foo: "boo" })];
 ```
+
+---
+
+# Proposal
+
+## Compiler hooks
+
+### Analyze all nodes
+
+```ts
+__compilerJob($compiler => {
+    const ts = $compiler.getTs();
+
+    // compiler processing node hook
+    $compiler.addListener('$onEnterNode', (node, replaceNode) => {
+        if (ts.isSmth(node)) {
+            replaceNode(...)
+        }
+    });
+});
+```
+
+### Handle special cases
+
+```ts
+__compilerJob($compiler => {
+    const ts = $compiler.getTs();
+
+    $compiler.addListener('$onProjectCompiled', ($compiler) => {
+        // append smth when everything is compiled
+        // eg cli commands
+        $compiler.appendNode($compiler.globalStore('data').items.map(x => ...));
+    });
+});
+```

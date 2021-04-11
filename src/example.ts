@@ -1,42 +1,4 @@
-// // -----------------------------------------------
-// //                  definitions
-
-// function __compilerEval<T>(x: string) {
-//     return {} as any;
-// }
-
-function comptime<T>(func: () => T): T {
-    return func();
-}
-
-type CompilerAPI = {
-    replaceWithCode<T = any>(code: string): T;
-    replaceWithNode<T = any>(astNode: any): T;
-    compileCode(code: string): string;
-    extractComptimeCode_funcBody(astFuncBodyNode: any): string;
-    printCode(astNode: any): string;
-    parseCodePickExpression(code: string): any;
-    unescapeText(text: string): string;
-    // getTypeOf(symb: any): any;
-    getTypeOfGeneric<T=any>(genericTypeInd: number): any;
-    getTypeChecker(): any;
-    getTransformContext(): any;
-    visitEachChild(astNode: any, visitor: any): any;
-    getTs(): any;
-    getCurrentNode(): any;
-    
-    addListener(eventName: string, handler: any): any;
-    removeListener(eventName: string, handler: any): any;
-    emitEvent(eventName: string, ...args: any): any;
-
-    globalStore(name: string): any;
-};
-
-function __compilerJob<A1=any,A2=any,A3=any,A4=any,A5=any>(func: ($compiler: CompilerAPI) => void) {
-    return undefined!;
-}
-
-// // -----------------------------------------------
+import { __compilerJob, comptime } from './transformers/comptime.lib';
 
 __compilerJob($compiler => {
     $compiler.addListener('item', (arg: any) => {

@@ -1,5 +1,6 @@
 import * as ts from 'typescript';
 import * as tsee from 'tsee';
+import { CompilerAPI } from './comptime.lib';
 
 const KEYWORD_COMPILER_EVAL = '__compilerEval';
 const KEYWORD_COMPTIME = 'comptime';
@@ -253,14 +254,14 @@ function createCompilerJobAPI(params: {
     sourceFile: ts.SourceFile,
     currentNode: ts.CallExpression,
     setReplaceWith: (newNode: ts.Node) => void,
-}) {
+}): CompilerAPI {
     // TODO: rewrite to static functions
 
     return {
         replaceWithCode: (code: string) => params.setReplaceWith(parseCodePickExpression(code)),
         replaceWithNode: (astNode: any) => params.setReplaceWith(astNode),
         compileCode: (code: string) => compileCode(params.checker, params.ctx, code),
-        extractComptimeCode_funcBody: (astFuncBodyNode: any) => extractComptimeCode(params.checker, params.ctx, astFuncBodyNode),
+        extractComptimeCode_funcBody: (astFuncBodyNode: ts.Node) => extractComptimeCode(params.checker, params.ctx, astFuncBodyNode),
         printCode: (astNode: any) => printCode(astNode, astNode.getSourceFile()),
         parseCodePickExpression: (code: string) => parseCodePickExpression(code),
         unescapeText: (text: string) => unescapeText(text),
@@ -275,7 +276,7 @@ function createCompilerJobAPI(params: {
         },
         getTypeChecker: () => params.checker,
         getTransformContext: () => params.ctx,
-        visitEachChild: (astNode: any, visitor: any) => {
+        visitEachChild: (astNode: any, visitor: ts.Visitor) => {
             return ts.visitEachChild(astNode, visitor, params.ctx);
         },
         getTs: () => ts,
